@@ -1,22 +1,25 @@
 /* eslint-disable no-console -- This proxy-only sink replaces console methods with OTLP emission. */
 import { inspect } from "node:util";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import {
   getProxyRequestTraceContext,
   proxyLogContext,
 } from "./proxyTraceContext.js";
 import { setImmediate as yieldToRequests } from "node:timers/promises";
-import { SeverityNumber } from "@opentelemetry/api-logs";
-import { ExportResultCode } from "@opentelemetry/core";
-import type { ExportResult } from "@opentelemetry/core";
-import {
-  createProxyOtlpLogTransport,
-  getProxyOtlpRetryAfter,
+import type { SeverityNumber as SeverityNumberType } from "@opentelemetry/api-logs";
+import type {
+  ExportResult,
+  ExportResultCode as ExportResultCodeType,
+} from "@opentelemetry/core";
+import type {
+  createProxyOtlpLogTransport as createProxyOtlpLogTransportType,
+  getProxyOtlpRetryAfter as getProxyOtlpRetryAfterType,
 } from "./otlpLogTransport.js";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  BatchLogRecordProcessor,
-  LoggerProvider,
+import type { resourceFromAttributes as resourceFromAttributesType } from "@opentelemetry/resources";
+import type {
+  BatchLogRecordProcessor as BatchLogRecordProcessorType,
+  LoggerProvider as LoggerProviderType,
 } from "@opentelemetry/sdk-logs";
 import type {
   LogRecordExporter,
@@ -32,7 +35,51 @@ import type {
   ProxyOtelExportFailure,
 } from "../types/index.js";
 
-let provider: LoggerProvider | undefined;
+/**
+ * @opentelemetry/sdk-logs, resources, api-logs and core (plus
+ * otlp-transformer transitively via otlpLogTransport.js) are loaded
+ * synchronously via require() on first actual use, not via a top-level
+ * import — so merely requiring this module (reachable eagerly from
+ * dist/server/index.js via codexProxyRoutes.ts/claudeProxyRoutes.ts) no
+ * longer pulls in five heavy OTel packages for the overwhelming majority
+ * of callers who never set NEUROLINK_PROXY_LOG_SINK=otel. Everything that
+ * depends on these bindings stays fully synchronous — construction is
+ * still one synchronous call, exactly as before — only the *import* is
+ * deferred, via Node's require(esm) support, not the initialization
+ * semantics. Do not convert this to a dynamic `import()`: that would make
+ * initializeProxyOtelLogs() asynchronous and break every caller (both
+ * production code and the tests below) that relies on the queues/provider
+ * existing synchronously the moment it returns.
+ */
+const require = createRequire(import.meta.url);
+let SeverityNumber!: typeof SeverityNumberType;
+let ExportResultCode!: typeof ExportResultCodeType;
+let resourceFromAttributes!: typeof resourceFromAttributesType;
+let BatchLogRecordProcessor!: typeof BatchLogRecordProcessorType;
+let LoggerProvider!: typeof LoggerProviderType;
+let createProxyOtlpLogTransport!: typeof createProxyOtlpLogTransportType;
+let getProxyOtlpRetryAfter!: typeof getProxyOtlpRetryAfterType;
+let otelDepsLoaded = false;
+
+function loadOtelDeps(): void {
+  if (otelDepsLoaded) {
+    return;
+  }
+  ({ SeverityNumber } = require("@opentelemetry/api-logs"));
+  ({ ExportResultCode } = require("@opentelemetry/core"));
+  ({ resourceFromAttributes } = require("@opentelemetry/resources"));
+  ({
+    BatchLogRecordProcessor,
+    LoggerProvider,
+  } = require("@opentelemetry/sdk-logs"));
+  ({
+    createProxyOtlpLogTransport,
+    getProxyOtlpRetryAfter,
+  } = require("./otlpLogTransport.js"));
+  otelDepsLoaded = true;
+}
+
+let provider: LoggerProviderType | undefined;
 let restoreConsole: (() => void) | undefined;
 const queues: Array<ReturnType<typeof createTrackedProcessor>> = [];
 const bodyPublications = new Map<string, ProxyBodyPublicationProgress>();
@@ -639,7 +686,7 @@ export async function publishProxyOtelBody(
 /** Initialize a log-only provider in every proxy process, including the supervisor. */
 export function initializeProxyOtelLogs(
   role = "worker",
-): LoggerProvider | undefined {
+): LoggerProviderType | undefined {
   if (!isProxyOtelOnly()) {
     return undefined;
   }
@@ -668,6 +715,9 @@ export function initializeProxyOtelLogs(
       );
     }
   }
+  // Validation above must run — and be able to throw — before this: a
+  // misconfigured endpoint must fail without ever loading the OTel SDK.
+  loadOtelDeps();
   const metadata = createTrackedProcessor(
     endpoint,
     2048,
