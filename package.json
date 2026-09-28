@@ -362,6 +362,11 @@
       "import": "./dist/avatar/index.js",
       "default": "./dist/avatar/index.js"
     },
+    "./autoresearch": {
+      "types": "./dist/autoresearch/index.d.ts",
+      "import": "./dist/autoresearch/index.js",
+      "default": "./dist/autoresearch/index.js"
+    },
     "./image-gen": {
       "types": "./dist/image-gen/index.d.ts",
       "import": "./dist/image-gen/index.js",

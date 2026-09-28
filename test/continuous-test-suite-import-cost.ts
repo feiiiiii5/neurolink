@@ -496,4 +496,17 @@ await test("an unresolvable zod-to-json-schema degrades to empty tool parameters
   );
 });
 
+await test("the documented /autoresearch package entry is exported", async () => {
+  // README.md documents this package self-reference. Keep the specifier
+  // dynamic so TypeScript does not hide a missing package export at compile
+  // time; Node must resolve it through package.json's public exports map.
+  const autoresearchEntry = "@juspay/neurolink/autoresearch";
+  const autoresearch = await import(autoresearchEntry);
+  assert(
+    typeof autoresearch.resolveConfig === "function" &&
+      typeof autoresearch.ResearchWorker === "function",
+    "the /autoresearch entry must expose the documented API",
+  );
+});
+
 await runSuite();
